@@ -1,0 +1,500 @@
+#include <AccelStepper.h>
+#include <MultiStepper.h>
+#include <Servo.h>
+#include <math.h>
+#define pi 3.14159265
+
+#define modeset  0                 // Cho =1 nếu muốn set vị trí cho rb; 88 -> nhập tọa độ vị trí (0->300)... -> nhập 123  để tay quay về home    
+
+int am; 
+
+#define rsc 8                  //hệ số điều chỉnh bán kính vòng O ở mode 7x7                            Tỉ lệ nghịch với c  
+#define dsc 5             //hệ số điều chỉnh kích thuóc dài và rộng của X   ở mode 7x7          Tỉ lệ nghịch với d
+
+#define tstx 4*(15.5)*2*2/3
+#define tsty 2*2*2*(20)/9
+
+Servo servo;
+int pos = 0;    // cua servo Z
+#define Enable 8
+// #define LimitY 10
+// #define LimitX 9
+AccelStepper stepperX(1, 2, 5);//Set up chân cho động cơ X(dưới đáy, u=11)
+AccelStepper stepperY(1, 3, 6);//Set up chân cho động cơ Y(cánh tay, u=2)
+//AccelStepper stepperY(1, 4, 7);//Set up chân cho động cơ Y(cánh tay, u=2)
+
+int S = 11;
+#define vx 70000    
+#define vy 60000   
+#define vxm 70000   
+#define vym 50000   
+#define ax 60000   
+#define ay 50000 
+
+#define dentaT 10
+#define dl 10             // delay/ runspeed
+int Steps;
+int Steps_X;
+int Steps_Y;    // 156 độ
+int do_dai;
+int dong_co;
+int theta_1;
+int theta_2;
+int vitri,vitricot,vitrihang,a,b,bc;
+
+float X,Y;
+int x_home, y_home;
+
+// DH
+    float l2 = 300; // The first arm      vị trí 300x300mm
+    float l3 = 200-5; // The second arm
+    float l01 = 150;
+    float l02 = 170;
+
+
+    float A;
+    float B;
+    double c2,s2,t2,c1,s1,t1;
+
+
+int number=0; // valuid...
+
+void setup() {
+        Serial.begin(9600);
+        pinMode(2,OUTPUT); //int dirX = 5 ;  int stepX = 2 ;
+        pinMode(5,OUTPUT);
+
+        pinMode(3,OUTPUT);
+        pinMode(6,OUTPUT);
+
+        // pinMode(4,OUTPUT);  //Z bieesn thanhf Y
+        // pinMode(7,OUTPUT);
+
+        pinMode(Enable,OUTPUT); //#define Enable 8
+
+        servo.attach(10); //  Z
+
+
+        // pinMode(LimitY, INPUT);
+
+        stepperX.setMaxSpeed(vxm);//Không biết lun
+        stepperX.setSpeed(vx*S);//Tốc độ quay nhanh chậm
+        stepperX.setAcceleration(ax);//Gia tốc mong muốn step/s (tính theo bước trên giây trên giây)
+
+        stepperY.setMaxSpeed(vym);
+        stepperY.setSpeed(vy);
+        stepperY.setAcceleration(ay);
+
+        // stepperZ.setMaxSpeed(1000);
+        // stepperZ.setSpeed(900);
+        // stepperZ.setAcceleration(1000);
+
+        stepperY.setPinsInverted(3);  //Sets the inversion for stepper driver pins
+        digitalWrite(Enable, LOW);//Low là cho phép động cơ hoạt động
+
+}
+void Move(float x, float y)
+{
+
+        A = x - l01;
+        B = y + l02;
+
+        c2 = (pow(A,2) + pow(B,2) - pow(l2,2) - pow(l3,2))/(2*l2*l3);
+        s2 = sqrt(abs(1 - pow(c2,2)));
+        t2 = atan2(s2,c2)*180/pi;
+
+        s1 = B*(l3*c2  + l2) - A*(l3*s2);
+        c1 = A*(l3*c2 + l2) + B*(l3*s2);
+        t1 = atan2(s1,c1)*180/pi;
+
+        Steps_X = (t1)*4*18*2*2/3;         // (t1)*20*2*2/3; theta_2*2*2*2*20/9;       theta_1*4*20*2*2/3;
+        stepperX.moveTo(1*Steps_X);
+        Steps_Y = (t2)*2*2*2*20/9;          //(t2)*2*2*20/9;
+        stepperY.moveTo(-1*Steps_Y);
+
+        while((stepperX.distanceToGo()!=0) || (stepperY.distanceToGo()!=0))
+        {
+          stepperY.run();
+          delayMicroseconds(dl);
+          stepperX.run();
+          delayMicroseconds(dl);
+        }
+}
+
+
+
+int getval (void) {
+        number = 0;
+        while(Serial.available() > 0){
+        Serial.read(); delay(100);
+        }
+        while (Serial.available() == 0){}
+        while(Serial.available() > 0)
+        {
+        byte(incoming);
+        incoming = Serial.read();
+        if (incoming >= '0' && incoming <= '9') {
+
+        number = (number * 10) + (incoming -'0');
+        delay(5);}
+        else{
+      // Serial.println("\nInvalid Entry! Try Again. \n");
+        } 
+        }
+        return number;
+}
+
+void ReturnPs()
+{
+
+      theta_1=0;
+      theta_2=0;
+        Steps_X = theta_1*tstx; 
+        stepperX.moveTo(1*Steps_X);
+    ///   Steps_X = theta_1*20*2*2/3; 
+    //   stepperX.moveTo(-1*Steps_X);
+
+
+
+
+        Steps_Y = theta_2*2*2*2*20/9;                     //    Steps_Y = theta_2*2*2*2*20/9;
+        stepperY.moveTo(-1*Steps_Y);                      //    stepperY.moveTo(-1*Steps_Y);    
+        
+
+        while((stepperX.distanceToGo()!=0)||(stepperY.distanceToGo()!=0))
+        {
+          stepperX.run();
+          delayMicroseconds(1);
+          stepperY.run();
+          delayMicroseconds(1);
+        } 
+
+}
+
+void SetPor() 
+{
+  Serial.print("mày thích cái gì! ");
+number = getval();
+Serial.println(number);
+dong_co=number;
+        if (dong_co == 88)
+      { 
+
+        Serial.println("Nhập tọa độ cho X: ");
+      number = getval();
+      Serial.println(number);
+      theta_1=number;
+        Serial.println("Nhập tọa độ cho Y: ");
+      number = getval();
+      Serial.println(number);
+      theta_2=number;
+          Move(theta_1,theta_2);
+          delayMicroseconds(1);    
+
+        
+
+        while((stepperX.distanceToGo()!=0)||(stepperY.distanceToGo()!=0))
+        {
+          stepperX.run();
+          delayMicroseconds(10);
+          stepperY.run();
+          delayMicroseconds(10);
+        }
+        
+      }
+
+          if (dong_co == 123)
+      {
+      theta_1=0;
+      theta_2=0;
+        Steps_X = theta_1*tstx; 
+        stepperX.moveTo(1*Steps_X);
+    ///   Steps_X = theta_1*20*2*2/3; 
+    //   stepperX.moveTo(-1*Steps_X);
+
+
+
+
+        Steps_Y = theta_2*2*2*2*20/9;                     //    Steps_Y = theta_2*2*2*2*20/9;
+        stepperY.moveTo(-1*Steps_Y);                      //    stepperY.moveTo(-1*Steps_Y);    
+        
+
+        while((stepperX.distanceToGo()!=0)||(stepperY.distanceToGo()!=0))
+        {
+          stepperX.run();
+          delayMicroseconds(1);
+          stepperY.run();
+          delayMicroseconds(1);
+        } 
+      }
+
+}
+
+void loop() { 
+  int r=20;
+  float d= 30/sqrt(2);
+      servo.write(180);  
+
+      if(modeset==1)
+      SetPor();                         
+      else {
+      Serial.print("Mình chơi KIỂU 3x3'33' hay 5x5'55' hây 7x7'77' nuôn zậy?");   // nhập vào 33 thì chơi kiểu 3x3, 55 thi kiểu 5x5
+      number = getval();
+      Serial.println(number);
+      while ((number!=33)&&(number!=55)&&(number!=77))
+      {
+      Serial.print("Nhập lại "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại kiểu chơi 3x3'33' hay 5x5'55' nào! ");
+      number = getval();
+      Serial.println(number);
+      //bc=number; 
+      }
+bc=number; 
+
+
+
+Serial.print("Tới lượt của X'1' hay O'0' nào! ");   // bật lên nếu bạn muốn tự kỷ
+number = getval();
+Serial.println(number);
+while ((number>1)||(number<0))
+      {
+      Serial.print("Nhập lại "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại lượt của X'1' hay O'0' nào! ");
+      number = getval();
+      Serial.println(number);
+      }
+am=number; 
+
+
+      if (am==0) 
+        {
+      dong_co=99;
+      Serial.println("Tới lượt của O'0' ! ");
+        }
+      else if(am==1)  
+        {
+      dong_co=100;
+      Serial.println("Tới lượt của X'1'! ");
+        }
+
+
+
+
+      if (dong_co == 99)  
+        { 
+          int dem=0;
+  if(bc==33)
+  {
+        Serial.println("Nhập tọa độ của O(1->9): ");
+        number = getval();
+        Serial.println(number);
+      vitri=number;
+      if(vitri ==3) {a=50; b=50;}
+      if(vitri ==2) {a=150; b=50;}
+      if(vitri ==1) {a=250; b=50;}
+      if(vitri ==6) {a=50; b=150;}
+      if(vitri ==5) {a=150; b=150;}
+      if(vitri ==4) {a=250; b=150;}
+      if(vitri ==9) {a=50; b=250;}
+      if(vitri ==8) {a=150; b=250;}
+      if(vitri ==7) {a=250; b=250;}  
+  }
+  if(bc==55)
+  {
+        Serial.print("Nhập tọa độ CỘT của O(1->5): ");
+      number = getval();
+      Serial.println(number);
+      while ((number>5)||(number<1))
+      {
+      Serial.print("Nhập lại tọa độ "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại tọa độ CỘT của O(1->5): ");
+      number = getval();
+      Serial.println(number);
+      }
+      vitricot=number;
+
+        Serial.print("Nhập tọa độ HÀNG của O(1->5): ");
+      number = getval();
+      Serial.println(number);
+      while ((number>5)||(number<1))
+      {
+      Serial.print("Nhập lại tọa độ "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại tọa độ CỘT của O(1->5): ");
+      number = getval();
+      Serial.println(number);
+      }
+      vitrihang=number;
+
+    a= vitricot*60-30;
+    b= vitrihang*60-30;   
+  }
+  if(bc==77)
+  {
+        Serial.print("Nhập tọa độ CỘT của O(1->7): ");
+      number = getval();
+      Serial.println(number);
+      while ((number>7)||(number<1))
+      {
+      Serial.print("Nhập lại tọa độ "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại tọa độ CỘT của O(1->7): ");
+      number = getval();
+      Serial.println(number);
+      }
+      vitricot=number;
+
+        Serial.print("Nhập tọa độ HÀNG của O(1->7): ");
+      number = getval();
+      Serial.println(number);
+      while ((number>7)||(number<1))
+      {
+      Serial.print("Nhập lại tọa độ "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại tọa độ CỘT của O(1->7): ");
+      number = getval();
+      Serial.println(number);
+      }
+      vitrihang=number;
+
+    a= vitricot*300/7-150/7;
+    b= vitrihang*300/7-150/7;   
+  r=r  - rsc;
+  }
+
+      
+          for (float t = 0; t < (2*pi+2*pi/20); t = t+2*pi/200)
+        { if(t==2*pi/100)
+        {servo.write(0); 
+        delay(200);
+        }
+          X = a + r*cos(t);                      
+          Y = b +  r*sin(t);                     
+          Move(X,Y);
+          ++dem;
+          delayMicroseconds(1);
+        Serial.println(dem);
+          if(dem==210)                            //240; +0,9          210; +0
+          {
+            servo.write(180);
+            delay(400);  
+            ReturnPs();
+          } 
+        }
+          
+          delay(dentaT);     
+        
+        }
+
+
+
+
+if (dong_co == 100)
+  { 
+ if(bc==33){
+        Serial.println("Nhập tọa độ của X(1->9): ");
+      number = getval();
+      Serial.println(number);
+      vitri=number;
+      if(vitri ==1) {a=50; b=50;}
+      if(vitri ==2) {a=150; b=50;}
+      if(vitri ==3) {a=250; b=50;}
+      if(vitri ==4) {a=50; b=150;}
+      if(vitri ==5) {a=150; b=150;}
+      if(vitri ==6) {a=250; b=150;}
+      if(vitri ==7) {a=50; b=250;}
+      if(vitri ==8) {a=150; b=250;}
+      if(vitri ==9) {a=250; b=250;}
+    }
+  if(bc==55)
+  {
+      Serial.print("Nhập tọa độ CỘT của X(1->5): ");
+       number = getval();
+      Serial.println(number);
+      while ((number>5)||(number<1))
+      {
+          Serial.print("Nhập lại tọa độ "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại tọa độ CỘT của X(1->5): ");
+            number = getval();
+          Serial.println(number);
+      }
+           vitricot=number;
+
+          Serial.print("Nhập tọa độ HÀNG của X(1->5): ");
+           number = getval();
+          Serial.println(number);
+      while ((number>5)||(number<1))
+      {
+          Serial.print("Nhập lại tọa độ "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại tọa độ CỘT của X(1->5): ");
+            number = getval();
+          Serial.println(number);
+      }
+           vitrihang=number;
+    a= vitricot*60-30;
+    b= vitrihang*60-30;    
+  }  
+  if(bc==77)
+  {
+        Serial.print("Nhập tọa độ CỘT của X(1->7): ");
+      number = getval();
+      Serial.println(number);
+      while ((number>7)||(number<1))
+      {
+      Serial.print("Nhập lại tọa độ "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại tọa độ CỘT của X(1->7): ");
+      number = getval();
+      Serial.println(number);
+      }
+      vitricot=number;
+
+        Serial.print("Nhập tọa độ HÀNG của X(1->7): ");
+      number = getval();
+      Serial.println(number);
+      while ((number>7)||(number<1))
+      {
+      Serial.print("Nhập lại tọa độ "); Serial.print(number);  Serial.println(" coi coi, nhập éo j z ba ");       
+          Serial.print("Nhập lại tọa độ CỘT của X(1->7): ");
+      number = getval();
+      Serial.println(number);
+      }
+      vitrihang=number;
+
+    a= vitricot*300/7-150/7;
+    b= vitrihang*300/7-150/7;   
+  d=d-dsc;
+  }
+
+          for (float t = 0; t<= d; t = t+0.05)
+        { if(t==0.05)servo.write(0); // haj buts
+            X = a-d/2  + t;
+            Y = b-d/2 + t;
+          Move(X,Y);
+          //if(t==30-0.05) servo.write(180);
+        }
+
+
+ servo.write(180); 
+ delay(150);
+          for (float t = 0; t<= d; t = t+0.05)  // vung di chuyen thang
+        { 
+            X = a+d/2    ;
+            Y = b+d/2 - t;
+          Move(X,Y);
+        }          
+// hạ bút
+// MoveZ(0); 
+servo.write(0);         
+
+          for (float t = 0; t<= d; t = t+0.05)
+        { 
+            X = a+d/2 - t;
+            Y = b-d/2 + t;
+          Move(X,Y);  
+        }   
+          servo.write(180);
+           delay(400);  
+            ReturnPs();
+  
+        }
+
+  
+}
+}
